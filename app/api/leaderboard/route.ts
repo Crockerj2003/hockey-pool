@@ -11,8 +11,7 @@ export async function GET(request: NextRequest) {
 
   const { data: players } = await supabase
     .from("players")
-    .select("*")
-    .eq("is_active", true);
+    .select("*");
 
   if (!players) {
     return NextResponse.json({ leaderboard: [] });
@@ -34,12 +33,15 @@ export async function GET(request: NextRequest) {
         .select("*", { count: "exact", head: true })
         .eq("player_id", player.id);
 
-      leaderboard.push({
-        player_id: player.id,
-        player_name: player.name,
-        correct: correct || 0,
-        total: total || 0,
-      });
+      const totalPicks = total || 0;
+      if (player.is_active || totalPicks > 0) {
+        leaderboard.push({
+          player_id: player.id,
+          player_name: player.name,
+          correct: correct || 0,
+          total: totalPicks,
+        });
+      }
     }
 
     leaderboard.sort((a, b) => b.correct - a.correct);
@@ -56,14 +58,28 @@ export async function GET(request: NextRequest) {
     .eq("end_date", sunday)
     .single();
 
-  if (!week) {
+  let targetWeekId = week?.id;
+  if (!targetWeekId) {
+    // Fallback: if current weekend row is missing, use the latest week
+    // so standings still render for recently synced games.
+    const { data: latestWeek } = await supabase
+      .from("weeks")
+      .select("id")
+      .order("start_date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    targetWeekId = latestWeek?.id;
+  }
+
+  if (!targetWeekId) {
     return NextResponse.json({ leaderboard: [] });
   }
 
   const { data: games } = await supabase
     .from("games")
     .select("id")
-    .eq("week_id", week.id);
+    .eq("week_id", targetWeekId);
 
   const gameIds = (games || []).map((g) => g.id);
 
@@ -85,12 +101,14 @@ export async function GET(request: NextRequest) {
     ).length;
     const total = (playerPicks || []).length;
 
-    leaderboard.push({
-      player_id: player.id,
-      player_name: player.name,
-      correct,
-      total,
-    });
+    if (player.is_active || total > 0) {
+      leaderboard.push({
+        player_id: player.id,
+        player_name: player.name,
+        correct,
+        total,
+      });
+    }
   }
 
   leaderboard.sort((a, b) => b.correct - a.correct);
