@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
         .eq("player_id", player.id);
 
       const totalPicks = total || 0;
-      if (player.is_active || totalPicks > 0) {
+      if (totalPicks > 0) {
         leaderboard.push({
           player_id: player.id,
           player_name: player.name,
@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
     ).length;
     const total = (playerPicks || []).length;
 
-    if (player.is_active || total > 0) {
+    if (total > 0) {
       leaderboard.push({
         player_id: player.id,
         player_name: player.name,
