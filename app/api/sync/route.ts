@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function syncGames() {
+async function syncGames() {
   const supabase = getServiceSupabase();
   const { friday, saturday, sunday } = getCurrentWeekendDates();
   const weekendDates = [friday, saturday, sunday];
