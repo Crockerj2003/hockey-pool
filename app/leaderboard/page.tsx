@@ -18,7 +18,9 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/leaderboard?mode=${mode}`)
+    fetch(`/api/leaderboard?mode=${mode}&t=${Date.now()}`, {
+      cache: "no-store",
+    })
       .then((r) => r.json())
       .then((data) => {
         setLeaderboard(data.leaderboard || []);

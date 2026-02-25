@@ -4,6 +4,17 @@ import { getCurrentWeekendDates } from "@/lib/dates";
 import { LeaderboardEntry } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+function jsonNoStore(payload: unknown) {
+  return NextResponse.json(payload, {
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
+  });
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -14,7 +25,7 @@ export async function GET(request: NextRequest) {
     .select("*");
 
   if (!players) {
-    return NextResponse.json({ leaderboard: [] });
+    return jsonNoStore({ leaderboard: [] });
   }
 
   if (mode === "alltime") {
@@ -45,7 +56,7 @@ export async function GET(request: NextRequest) {
     }
 
     leaderboard.sort((a, b) => b.correct - a.correct);
-    return NextResponse.json({ leaderboard });
+    return jsonNoStore({ leaderboard });
   }
 
   // Weekend leaderboard
@@ -73,7 +84,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (!targetWeekId) {
-    return NextResponse.json({ leaderboard: [] });
+    return jsonNoStore({ leaderboard: [] });
   }
 
   const { data: games } = await supabase
@@ -84,7 +95,7 @@ export async function GET(request: NextRequest) {
   const gameIds = (games || []).map((g) => g.id);
 
   if (gameIds.length === 0) {
-    return NextResponse.json({ leaderboard: [] });
+    return jsonNoStore({ leaderboard: [] });
   }
 
   const leaderboard: LeaderboardEntry[] = [];
@@ -112,5 +123,5 @@ export async function GET(request: NextRequest) {
   }
 
   leaderboard.sort((a, b) => b.correct - a.correct);
-  return NextResponse.json({ leaderboard, total_games: gameIds.length });
+  return jsonNoStore({ leaderboard, total_games: gameIds.length });
 }
