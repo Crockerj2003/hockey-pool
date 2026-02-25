@@ -302,8 +302,9 @@ function AdminDashboard({ authToken }: { authToken: string }) {
           <div className="rounded-lg bg-secondary/50 p-4 text-sm text-muted-foreground">
             <p className="font-medium text-foreground">Auto-sync schedule</p>
             <p className="mt-1">
-              Cron job runs every 15 minutes on Fri/Sat/Sun from 5PM-11PM UTC.
-              You can also trigger a manual sync anytime using the button above.
+              Cron job runs every 30 minutes daily from 12PM-11PM UTC so
+              upcoming weekend games are synced before Friday. You can also
+              trigger a manual sync anytime using the button above.
             </p>
           </div>
         </div>
