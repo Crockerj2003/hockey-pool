@@ -3,7 +3,6 @@ import { getServiceSupabase } from "@/lib/supabase";
 import {
   fetchNHLSchedule,
   fetchNHLScores,
-  extractGamesForDates,
   getGameWinner,
   mapGameStatus,
 } from "@/lib/nhl";
@@ -75,43 +74,44 @@ async function syncGames() {
 
   // Fetch schedule from NHL API (fetching from Friday gives us the whole week)
   const schedule = await fetchNHLSchedule(friday);
-  const nhlGames = extractGamesForDates(schedule, weekendDates);
+  const weekendScheduleDays = schedule.gameWeek.filter((day) =>
+    weekendDates.includes(day.date)
+  );
 
   let gamesUpserted = 0;
   let earliestGameTime: string | null = null;
 
-  // Upsert each game
-  for (const nhlGame of nhlGames) {
-    const gameTime = nhlGame.startTimeUTC;
+  // Upsert each weekend game, preserving NHL schedule day as game_date.
+  for (const day of weekendScheduleDays) {
+    for (const nhlGame of day.games) {
+      const gameTime = nhlGame.startTimeUTC;
 
-    if (!earliestGameTime || gameTime < earliestGameTime) {
-      earliestGameTime = gameTime;
+      if (!earliestGameTime || gameTime < earliestGameTime) {
+        earliestGameTime = gameTime;
+      }
+
+      const { error } = await supabase.from("games").upsert(
+        {
+          nhl_game_id: nhlGame.id,
+          week_id: week.id,
+          home_team: nhlGame.homeTeam.abbrev,
+          away_team: nhlGame.awayTeam.abbrev,
+          home_team_logo:
+            nhlGame.homeTeam.logo ||
+            `https://assets.nhle.com/logos/nhl/svg/${nhlGame.homeTeam.abbrev}_dark.svg`,
+          away_team_logo:
+            nhlGame.awayTeam.logo ||
+            `https://assets.nhle.com/logos/nhl/svg/${nhlGame.awayTeam.abbrev}_dark.svg`,
+          game_date: day.date,
+          game_time: gameTime,
+          status: mapGameStatus(nhlGame.gameState),
+          winner: getGameWinner(nhlGame),
+        },
+        { onConflict: "nhl_game_id" }
+      );
+
+      if (!error) gamesUpserted++;
     }
-
-    const gameDate =
-      nhlGame.gameDate || nhlGame.startTimeUTC.substring(0, 10);
-
-    const { error } = await supabase.from("games").upsert(
-      {
-        nhl_game_id: nhlGame.id,
-        week_id: week.id,
-        home_team: nhlGame.homeTeam.abbrev,
-        away_team: nhlGame.awayTeam.abbrev,
-        home_team_logo:
-          nhlGame.homeTeam.logo ||
-          `https://assets.nhle.com/logos/nhl/svg/${nhlGame.homeTeam.abbrev}_dark.svg`,
-        away_team_logo:
-          nhlGame.awayTeam.logo ||
-          `https://assets.nhle.com/logos/nhl/svg/${nhlGame.awayTeam.abbrev}_dark.svg`,
-        game_date: gameDate,
-        game_time: gameTime,
-        status: mapGameStatus(nhlGame.gameState),
-        winner: getGameWinner(nhlGame),
-      },
-      { onConflict: "nhl_game_id" }
-    );
-
-    if (!error) gamesUpserted++;
   }
 
   // Update lock_time on the week
