@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Game, Player, Pick as PickType } from "@/lib/types";
-import { formatDisplayDate } from "@/lib/dates";
+import { formatDisplayDate, isWeekendLocked } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import GameCard from "@/components/GameCard";
 import {
@@ -28,6 +28,7 @@ export default function PicksViewPage() {
   const [games, setGames] = useState<Game[]>([]);
   const [allPicks, setAllPicks] = useState<PickType[]>([]);
   const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
+  const [lockTime, setLockTime] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -43,6 +44,7 @@ export default function PicksViewPage() {
         setPlayers(playersData.players || []);
         setGames(picksData.games || []);
         setAllPicks(picksData.picks || []);
+        setLockTime(picksData.week?.lock_time || null);
       } catch {
         // Handle errors silently
       } finally {
@@ -83,6 +85,7 @@ export default function PicksViewPage() {
     {} as Record<string, Game[]>
   );
   const sortedDates = Object.keys(gamesByDate).sort();
+  const picksRevealed = isWeekendLocked(lockTime);
 
   if (loading) {
     return (
@@ -101,9 +104,17 @@ export default function PicksViewPage() {
           All Picks
         </h1>
         <p className="text-sm text-muted-foreground">
-          See what everyone picked this weekend
+          {picksRevealed
+            ? "See what everyone picked this weekend"
+            : "Picks are hidden until the first game starts"}
         </p>
       </div>
+
+      {!picksRevealed && (
+        <div className="mb-4 rounded-lg bg-yellow-500/10 px-4 py-3 text-sm text-yellow-400">
+          Picks will be revealed once the first game starts.
+        </div>
+      )}
 
       {/* No data */}
       {playerData.length === 0 && (
@@ -176,9 +187,9 @@ export default function PicksViewPage() {
                             <GameCard
                               key={game.id}
                               game={game}
-                              pickedTeam={picks[game.id]}
+                              pickedTeam={picksRevealed ? picks[game.id] : undefined}
                               locked={true}
-                              showResult={true}
+                              showResult={picksRevealed}
                             />
                           ))}
                         </div>

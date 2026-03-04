@@ -5,10 +5,32 @@ import { LeaderboardEntry } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Trophy, Loader2, Medal } from "lucide-react";
 
+interface WeekOption {
+  id: string;
+  start_date: string;
+  end_date: string;
+}
+
+function formatWeekLabel(week: WeekOption): string {
+  const start = new Date(`${week.start_date}T12:00:00`);
+  const end = new Date(`${week.end_date}T12:00:00`);
+  const startLabel = start.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+  const endLabel = end.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+  return `${startLabel} - ${endLabel}`;
+}
+
 export default function LeaderboardPage() {
   const [mode, setMode] = useState<"weekend" | "alltime">("weekend");
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [totalGames, setTotalGames] = useState(0);
+  const [weeks, setWeeks] = useState<WeekOption[]>([]);
+  const [selectedWeekId, setSelectedWeekId] = useState("");
   const [loading, setLoading] = useState(true);
   const [currentPlayer, setCurrentPlayer] = useState<string | null>(null);
 
@@ -18,17 +40,36 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`/api/leaderboard?mode=${mode}&t=${Date.now()}`, {
+    const params = new URLSearchParams({
+      mode,
+      t: String(Date.now()),
+    });
+    if (mode === "weekend" && selectedWeekId) {
+      params.set("week_id", selectedWeekId);
+    }
+
+    fetch(`/api/leaderboard?${params.toString()}`, {
       cache: "no-store",
     })
       .then((r) => r.json())
       .then((data) => {
         setLeaderboard(data.leaderboard || []);
         setTotalGames(data.total_games || 0);
+        setWeeks(data.weeks || []);
+        if (
+          mode === "weekend" &&
+          !selectedWeekId &&
+          typeof data.selected_week_id === "string"
+        ) {
+          setSelectedWeekId(data.selected_week_id);
+        }
       })
-      .catch(() => setLeaderboard([]))
+      .catch(() => {
+        setLeaderboard([]);
+        setWeeks([]);
+      })
       .finally(() => setLoading(false));
-  }, [mode]);
+  }, [mode, selectedWeekId]);
 
   return (
     <div className="px-4">
@@ -65,6 +106,22 @@ export default function LeaderboardPage() {
           All-Time
         </button>
       </div>
+
+      {mode === "weekend" && weeks.length > 0 && (
+        <div className="mb-4">
+          <select
+            value={selectedWeekId}
+            onChange={(e) => setSelectedWeekId(e.target.value)}
+            className="w-full rounded-lg border border-border bg-card px-4 py-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary"
+          >
+            {weeks.map((week) => (
+              <option key={week.id} value={week.id}>
+                {formatWeekLabel(week)}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Loading */}
       {loading && (

@@ -105,6 +105,11 @@ export default function PickPage() {
         setError(data.error || "Failed to submit picks");
       } else {
         setSubmitted(true);
+        // Clear selected identity on shared devices after a successful submit.
+        setSelectedPlayer("");
+        setPicks({});
+        setExistingPicks([]);
+        localStorage.removeItem("hockey-pool-player");
         setTimeout(() => setSubmitted(false), 3000);
       }
     } catch {

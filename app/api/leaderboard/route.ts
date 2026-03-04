@@ -19,6 +19,7 @@ function jsonNoStore(payload: unknown) {
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const mode = searchParams.get("mode") || "weekend";
+  const requestedWeekId = searchParams.get("week_id");
 
   const { data: players } = await supabase
     .from("players")
@@ -56,11 +57,31 @@ export async function GET(request: NextRequest) {
     }
 
     leaderboard.sort((a, b) => b.correct - a.correct);
-    return jsonNoStore({ leaderboard });
+    return jsonNoStore({ leaderboard, weeks: [] });
   }
 
   // Weekend leaderboard
   const { friday, sunday } = getCurrentWeekendDates();
+  const { data: weeks } = await supabase
+    .from("weeks")
+    .select("id,start_date,end_date")
+    .order("start_date", { ascending: false });
+
+  const availableWeeks = weeks || [];
+
+  if (availableWeeks.length === 0) {
+    return jsonNoStore({ leaderboard: [], weeks: [], total_games: 0 });
+  }
+
+  let targetWeekId = requestedWeekId || null;
+
+  // If a week was explicitly chosen, honor it when valid.
+  if (targetWeekId) {
+    const exists = availableWeeks.some((w) => w.id === targetWeekId);
+    if (!exists) {
+      targetWeekId = null;
+    }
+  }
 
   const { data: week } = await supabase
     .from("weeks")
@@ -69,22 +90,18 @@ export async function GET(request: NextRequest) {
     .eq("end_date", sunday)
     .single();
 
-  let targetWeekId = week?.id;
   if (!targetWeekId) {
-    // Fallback: if current weekend row is missing, use the latest week
-    // so standings still render for recently synced games.
-    const { data: latestWeek } = await supabase
-      .from("weeks")
-      .select("id")
-      .order("start_date", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    targetWeekId = latestWeek?.id;
+    targetWeekId = week?.id || null;
   }
 
   if (!targetWeekId) {
-    return jsonNoStore({ leaderboard: [] });
+    // Fallback: if current weekend row is missing, use the latest week
+    // so standings still render for recently synced games.
+    targetWeekId = availableWeeks[0].id;
+  }
+
+  if (!targetWeekId) {
+    return jsonNoStore({ leaderboard: [], weeks: availableWeeks, total_games: 0 });
   }
 
   const { data: games } = await supabase
@@ -95,7 +112,12 @@ export async function GET(request: NextRequest) {
   const gameIds = (games || []).map((g) => g.id);
 
   if (gameIds.length === 0) {
-    return jsonNoStore({ leaderboard: [] });
+    return jsonNoStore({
+      leaderboard: [],
+      weeks: availableWeeks,
+      selected_week_id: targetWeekId,
+      total_games: 0,
+    });
   }
 
   const leaderboard: LeaderboardEntry[] = [];
@@ -123,5 +145,10 @@ export async function GET(request: NextRequest) {
   }
 
   leaderboard.sort((a, b) => b.correct - a.correct);
-  return jsonNoStore({ leaderboard, total_games: gameIds.length });
+  return jsonNoStore({
+    leaderboard,
+    weeks: availableWeeks,
+    selected_week_id: targetWeekId,
+    total_games: gameIds.length,
+  });
 }
