@@ -9,16 +9,29 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const playerId = searchParams.get("player_id");
+  const weekId = searchParams.get("week_id");
 
-  const { friday, sunday } = getCurrentWeekendDates();
+  let week: { id: string; lock_time: string | null } | null = null;
 
-  // Get the current week
-  const { data: week } = await supabase
-    .from("weeks")
-    .select("*")
-    .eq("start_date", friday)
-    .eq("end_date", sunday)
-    .single();
+  if (weekId) {
+    const { data } = await supabase
+      .from("weeks")
+      .select("*")
+      .eq("id", weekId)
+      .maybeSingle();
+    week = data;
+  } else {
+    const { friday, sunday } = getCurrentWeekendDates();
+
+    // Get the current week
+    const { data } = await supabase
+      .from("weeks")
+      .select("*")
+      .eq("start_date", friday)
+      .eq("end_date", sunday)
+      .single();
+    week = data;
+  }
 
   if (!week) {
     return NextResponse.json({ picks: [], games: [] });

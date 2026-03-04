@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { LeaderboardEntry } from "@/lib/types";
+import { Game, LeaderboardEntry, Pick as PickType } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Trophy, Loader2, Medal } from "lucide-react";
+import { Trophy, Loader2, Medal, ChevronDown, ChevronUp } from "lucide-react";
+import { formatDisplayDate } from "@/lib/dates";
+import GameCard from "@/components/GameCard";
 
 interface WeekOption {
   id: string;
@@ -31,6 +33,14 @@ export default function LeaderboardPage() {
   const [totalGames, setTotalGames] = useState(0);
   const [weeks, setWeeks] = useState<WeekOption[]>([]);
   const [selectedWeekId, setSelectedWeekId] = useState("");
+  const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null);
+  const [playerPicksByPlayerId, setPlayerPicksByPlayerId] = useState<
+    Record<string, Record<string, string>>
+  >({});
+  const [gamesByPlayerId, setGamesByPlayerId] = useState<Record<string, Game[]>>(
+    {}
+  );
+  const [loadingPlayerId, setLoadingPlayerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentPlayer, setCurrentPlayer] = useState<string | null>(null);
 
@@ -70,6 +80,49 @@ export default function LeaderboardPage() {
       })
       .finally(() => setLoading(false));
   }, [mode, selectedWeekId]);
+
+  useEffect(() => {
+    setExpandedPlayerId(null);
+  }, [mode, selectedWeekId]);
+
+  const loadPlayerPicks = async (playerId: string) => {
+    if (mode !== "weekend" || !selectedWeekId) return;
+
+    setLoadingPlayerId(playerId);
+    try {
+      const params = new URLSearchParams({
+        player_id: playerId,
+        week_id: selectedWeekId,
+        t: String(Date.now()),
+      });
+      const res = await fetch(`/api/picks?${params.toString()}`, {
+        cache: "no-store",
+      });
+      const data = await res.json();
+      const picks = (data.picks || []) as PickType[];
+      const games = (data.games || []) as Game[];
+      const pickMap: Record<string, string> = {};
+      picks.forEach((p) => {
+        pickMap[p.game_id] = p.picked_team;
+      });
+      setPlayerPicksByPlayerId((prev) => ({ ...prev, [playerId]: pickMap }));
+      setGamesByPlayerId((prev) => ({ ...prev, [playerId]: games }));
+    } finally {
+      setLoadingPlayerId(null);
+    }
+  };
+
+  const togglePlayerExpansion = async (playerId: string) => {
+    if (mode !== "weekend") return;
+    if (expandedPlayerId === playerId) {
+      setExpandedPlayerId(null);
+      return;
+    }
+    setExpandedPlayerId(playerId);
+    if (!gamesByPlayerId[playerId]) {
+      await loadPlayerPicks(playerId);
+    }
+  };
 
   return (
     <div className="px-4">
@@ -144,54 +197,120 @@ export default function LeaderboardPage() {
           {leaderboard.map((entry, index) => {
             const isCurrentPlayer = entry.player_id === currentPlayer;
             const rank = index + 1;
+            const isExpanded =
+              mode === "weekend" && expandedPlayerId === entry.player_id;
+            const playerGames = gamesByPlayerId[entry.player_id] || [];
+            const playerPicks = playerPicksByPlayerId[entry.player_id] || {};
+            const groupedGames = playerGames.reduce(
+              (acc, game) => {
+                if (!acc[game.game_date]) acc[game.game_date] = [];
+                acc[game.game_date].push(game);
+                return acc;
+              },
+              {} as Record<string, Game[]>
+            );
+            const groupedDates = Object.keys(groupedGames).sort();
 
             return (
               <div
                 key={entry.player_id}
                 className={cn(
-                  "flex items-center gap-3 rounded-xl border p-4 transition-all",
+                  "overflow-hidden rounded-xl border transition-all",
                   isCurrentPlayer
                     ? "border-primary/50 bg-primary/5"
                     : "border-border bg-card"
                 )}
               >
-                {/* Rank */}
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center">
-                  {rank === 1 ? (
-                    <Medal className="h-6 w-6 text-yellow-400" />
-                  ) : rank === 2 ? (
-                    <Medal className="h-6 w-6 text-gray-300" />
-                  ) : rank === 3 ? (
-                    <Medal className="h-6 w-6 text-amber-600" />
-                  ) : (
-                    <span className="text-lg font-bold text-muted-foreground">
-                      {rank}
-                    </span>
+                <button
+                  onClick={() => togglePlayerExpansion(entry.player_id)}
+                  disabled={mode !== "weekend"}
+                  className={cn(
+                    "flex w-full items-center gap-3 p-4 text-left",
+                    mode === "weekend" &&
+                      "hover:bg-secondary/40 active:bg-secondary/60"
                   )}
-                </div>
-
-                {/* Name */}
-                <div className="flex-1">
-                  <span
-                    className={cn(
-                      "font-semibold",
-                      isCurrentPlayer && "text-primary"
+                >
+                  {/* Rank */}
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center">
+                    {rank === 1 ? (
+                      <Medal className="h-6 w-6 text-yellow-400" />
+                    ) : rank === 2 ? (
+                      <Medal className="h-6 w-6 text-gray-300" />
+                    ) : rank === 3 ? (
+                      <Medal className="h-6 w-6 text-amber-600" />
+                    ) : (
+                      <span className="text-lg font-bold text-muted-foreground">
+                        {rank}
+                      </span>
                     )}
-                  >
-                    {entry.player_name}
-                  </span>
-                  {isCurrentPlayer && (
-                    <span className="ml-2 text-xs text-primary">(You)</span>
-                  )}
-                </div>
-
-                {/* Score */}
-                <div className="text-right">
-                  <div className="text-lg font-bold">{entry.correct}</div>
-                  <div className="text-xs text-muted-foreground">
-                    /{mode === "weekend" ? totalGames : entry.total}
                   </div>
-                </div>
+
+                  {/* Name */}
+                  <div className="flex-1">
+                    <span
+                      className={cn(
+                        "font-semibold",
+                        isCurrentPlayer && "text-primary"
+                      )}
+                    >
+                      {entry.player_name}
+                    </span>
+                    {isCurrentPlayer && (
+                      <span className="ml-2 text-xs text-primary">(You)</span>
+                    )}
+                  </div>
+
+                  {/* Score */}
+                  <div className="text-right">
+                    <div className="text-lg font-bold">{entry.correct}</div>
+                    <div className="text-xs text-muted-foreground">
+                      /{mode === "weekend" ? totalGames : entry.total}
+                    </div>
+                  </div>
+
+                  {mode === "weekend" && (
+                    <div className="ml-2">
+                      {isExpanded ? (
+                        <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </div>
+                  )}
+                </button>
+
+                {isExpanded && (
+                  <div className="border-t border-border px-4 pb-4 pt-3">
+                    {loadingPlayerId === entry.player_id ? (
+                      <div className="flex items-center justify-center py-6">
+                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                      </div>
+                    ) : groupedDates.length === 0 ? (
+                      <p className="py-4 text-center text-sm text-muted-foreground">
+                        No picks for this week
+                      </p>
+                    ) : (
+                      groupedDates.map((date) => (
+                        <div key={date} className="mb-4 last:mb-0">
+                          <h3 className="mb-2 text-sm font-medium text-muted-foreground">
+                            {formatDisplayDate(date)}
+                          </h3>
+                          <div className="space-y-2">
+                            {groupedGames[date].map((game) => (
+                              <GameCard
+                                key={game.id}
+                                game={game}
+                                pickedTeam={playerPicks[game.id]}
+                                locked={true}
+                                showResult={true}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
