@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import BottomNav from "@/components/BottomNav";
+import ChangelogBanner from "@/components/ChangelogBanner";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -28,6 +29,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <main className="mx-auto min-h-screen max-w-lg pb-20 pt-4">
+          <ChangelogBanner />
           {children}
         </main>
         <BottomNav />
