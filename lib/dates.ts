@@ -1,6 +1,7 @@
 /**
  * Get the Friday, Saturday, Sunday dates for the current (or next upcoming) weekend.
- * If today is Monday-Thursday, returns the upcoming Fri/Sat/Sun.
+ * If today is Monday, returns the previous Fri/Sat/Sun (so results stay visible).
+ * If today is Tuesday-Thursday, returns the upcoming Fri/Sat/Sun.
  * If today is Friday-Sunday, returns this Fri/Sat/Sun.
  */
 const NHL_TIME_ZONE = "America/New_York";
@@ -65,11 +66,14 @@ export function getCurrentWeekendDates(): {
 
   let friday = new Date(todayUtc);
 
-  if (todayInNhlTz.dayOfWeek === 6) {
+  if (todayInNhlTz.dayOfWeek === 1) {
+    // Monday: keep showing the previous weekend.
+    friday.setUTCDate(friday.getUTCDate() - 3);
+  } else if (todayInNhlTz.dayOfWeek === 6) {
     friday.setUTCDate(friday.getUTCDate() - 1);
   } else if (todayInNhlTz.dayOfWeek === 0) {
     friday.setUTCDate(friday.getUTCDate() - 2);
-  } else if (todayInNhlTz.dayOfWeek >= 1 && todayInNhlTz.dayOfWeek <= 4) {
+  } else if (todayInNhlTz.dayOfWeek >= 2 && todayInNhlTz.dayOfWeek <= 4) {
     const daysUntilFriday = 5 - todayInNhlTz.dayOfWeek;
     friday.setUTCDate(friday.getUTCDate() + daysUntilFriday);
   } else {
