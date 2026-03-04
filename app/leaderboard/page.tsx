@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Game, LeaderboardEntry, Pick as PickType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Trophy, Loader2, Medal, ChevronDown, ChevronUp } from "lucide-react";
-import { formatDisplayDate } from "@/lib/dates";
+import { formatDisplayDate, isWeekendLocked } from "@/lib/dates";
 import GameCard from "@/components/GameCard";
 
 interface WeekOption {
@@ -40,6 +40,9 @@ export default function LeaderboardPage() {
   const [gamesByPlayerId, setGamesByPlayerId] = useState<Record<string, Game[]>>(
     {}
   );
+  const [picksRevealedByPlayerId, setPicksRevealedByPlayerId] = useState<
+    Record<string, boolean>
+  >({});
   const [loadingPlayerId, setLoadingPlayerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentPlayer, setCurrentPlayer] = useState<string | null>(null);
@@ -107,6 +110,10 @@ export default function LeaderboardPage() {
       });
       setPlayerPicksByPlayerId((prev) => ({ ...prev, [playerId]: pickMap }));
       setGamesByPlayerId((prev) => ({ ...prev, [playerId]: games }));
+      setPicksRevealedByPlayerId((prev) => ({
+        ...prev,
+        [playerId]: isWeekendLocked(data.week?.lock_time || null),
+      }));
     } finally {
       setLoadingPlayerId(null);
     }
@@ -201,6 +208,7 @@ export default function LeaderboardPage() {
               mode === "weekend" && expandedPlayerId === entry.player_id;
             const playerGames = gamesByPlayerId[entry.player_id] || [];
             const playerPicks = playerPicksByPlayerId[entry.player_id] || {};
+            const picksRevealed = picksRevealedByPlayerId[entry.player_id] || false;
             const groupedGames = playerGames.reduce(
               (acc, game) => {
                 if (!acc[game.game_date]) acc[game.game_date] = [];
@@ -290,24 +298,36 @@ export default function LeaderboardPage() {
                         No picks for this week
                       </p>
                     ) : (
-                      groupedDates.map((date) => (
-                        <div key={date} className="mb-4 last:mb-0">
-                          <h3 className="mb-2 text-sm font-medium text-muted-foreground">
-                            {formatDisplayDate(date)}
-                          </h3>
-                          <div className="space-y-2">
-                            {groupedGames[date].map((game) => (
-                              <GameCard
-                                key={game.id}
-                                game={game}
-                                pickedTeam={playerPicks[game.id]}
-                                locked={true}
-                                showResult={true}
-                              />
-                            ))}
+                      <>
+                        {!picksRevealed && (
+                          <div className="mb-3 rounded-lg bg-yellow-500/10 px-3 py-2 text-xs text-yellow-400">
+                            Picks for this week are hidden until the first game
+                            starts.
                           </div>
-                        </div>
-                      ))
+                        )}
+                        {groupedDates.map((date) => (
+                          <div key={date} className="mb-4 last:mb-0">
+                            <h3 className="mb-2 text-sm font-medium text-muted-foreground">
+                              {formatDisplayDate(date)}
+                            </h3>
+                            <div className="space-y-2">
+                              {groupedGames[date].map((game) => (
+                                <GameCard
+                                  key={game.id}
+                                  game={game}
+                                  pickedTeam={
+                                    picksRevealed
+                                      ? playerPicks[game.id]
+                                      : undefined
+                                  }
+                                  locked={true}
+                                  showResult={picksRevealed}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </>
                     )}
                   </div>
                 )}
