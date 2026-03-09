@@ -19,13 +19,30 @@ export default function PickPage() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load players
-  useEffect(() => {
-    fetch("/api/players")
-      .then((r) => r.json())
-      .then((data) => setPlayers(data.players || []))
-      .catch(() => setError("Failed to load players"));
+  const loadSelectablePlayers = useCallback(async () => {
+    try {
+      const [playersRes, picksRes] = await Promise.all([
+        fetch("/api/players", { cache: "no-store" }),
+        fetch("/api/picks", { cache: "no-store" }),
+      ]);
+      const playersData = await playersRes.json();
+      const picksData = await picksRes.json();
+      const submittedPlayerIds = new Set<string>(
+        (picksData.picks || []).map((p: PickType) => p.player_id)
+      );
+      const availablePlayers = (playersData.players || []).filter(
+        (p: Player) => !submittedPlayerIds.has(p.id)
+      );
+      setPlayers(availablePlayers);
+    } catch {
+      setError("Failed to load players");
+    }
   }, []);
+
+  // Load players who have not submitted picks yet.
+  useEffect(() => {
+    loadSelectablePlayers();
+  }, [loadSelectablePlayers]);
 
   // Load games and picks
   const loadData = useCallback(async () => {
@@ -66,6 +83,15 @@ export default function PickPage() {
     if (saved) setSelectedPlayer(saved);
   }, []);
 
+  useEffect(() => {
+    if (selectedPlayer && !players.some((p) => p.id === selectedPlayer)) {
+      setSelectedPlayer("");
+      setPicks({});
+      setExistingPicks([]);
+      localStorage.removeItem("hockey-pool-player");
+    }
+  }, [players, selectedPlayer]);
+
   const handlePlayerChange = (playerId: string) => {
     setSelectedPlayer(playerId);
     setPicks({});
@@ -104,12 +130,14 @@ export default function PickPage() {
       if (!res.ok) {
         setError(data.error || "Failed to submit picks");
       } else {
+        const submittedPlayerId = selectedPlayer;
         setSubmitted(true);
         // Clear selected identity on shared devices after a successful submit.
         setSelectedPlayer("");
         setPicks({});
         setExistingPicks([]);
         localStorage.removeItem("hockey-pool-player");
+        setPlayers((prev) => prev.filter((p) => p.id !== submittedPlayerId));
         setTimeout(() => setSubmitted(false), 3000);
       }
     } catch {
