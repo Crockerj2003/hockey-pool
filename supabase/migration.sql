@@ -73,3 +73,41 @@ create policy "Public update picks" on picks for update using (true);
 
 -- Service role has full access (for admin operations and sync)
 -- This is handled automatically by Supabase service role key
+
+-- ---------------------------------------------------------------------------
+-- Playoff pool (single entry per pool participant for the whole postseason)
+-- ---------------------------------------------------------------------------
+
+create table if not exists playoff_settings (
+  id uuid primary key default uuid_generate_v4(),
+  bracket_calendar_year int not null default 2026,
+  season_id text not null default '20252026',
+  picks_lock_at timestamptz
+);
+
+-- Exactly one settings row (insert manually in Supabase if empty)
+insert into playoff_settings (bracket_calendar_year, season_id)
+select 2026, '20252026'
+where not exists (select 1 from playoff_settings limit 1);
+
+create table if not exists playoff_picks (
+  id uuid primary key default uuid_generate_v4(),
+  player_id uuid not null references players(id) on delete cascade,
+  nhl_player_id bigint not null,
+  team_abbrev text not null,
+  player_name text not null,
+  is_goalie boolean not null default false,
+  stat_value int not null default 0,
+  created_at timestamptz default now(),
+  unique(player_id, nhl_player_id)
+);
+
+create index if not exists idx_playoff_picks_player_id on playoff_picks(player_id);
+create index if not exists idx_playoff_picks_nhl_player_id on playoff_picks(nhl_player_id);
+
+alter table playoff_settings enable row level security;
+alter table playoff_picks enable row level security;
+
+create policy "Public read playoff_settings" on playoff_settings for select using (true);
+create policy "Public read playoff_picks" on playoff_picks for select using (true);
+create policy "Public insert playoff_picks" on playoff_picks for insert with check (true);

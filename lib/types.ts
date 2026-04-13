@@ -48,6 +48,38 @@ export interface LeaderboardEntry {
   total: number;
 }
 
+export interface PlayoffSettings {
+  id: string;
+  bracket_calendar_year: number;
+  season_id: string;
+  picks_lock_at: string | null;
+}
+
+export interface PlayoffPick {
+  id: string;
+  player_id: string;
+  nhl_player_id: number;
+  team_abbrev: string;
+  player_name: string;
+  is_goalie: boolean;
+  stat_value: number;
+  created_at: string;
+}
+
+export interface PlayoffTeamOption {
+  abbrev: string;
+  name: string;
+  logo: string;
+}
+
+export interface PlayoffLeaderboardEntry {
+  player_id: string;
+  player_name: string;
+  total_points: number;
+  skater_slots: number;
+  goalie_slots: number;
+}
+
 export interface NHLGame {
   id: number;
   startTimeUTC: string;

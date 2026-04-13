@@ -12,6 +12,7 @@ import {
   Users,
   Zap,
   Settings,
+  Snowflake,
 } from "lucide-react";
 
 export default function AdminPage() {
@@ -77,6 +78,178 @@ export default function AdminPage() {
   return <AdminDashboard authToken={authToken} />;
 }
 
+function PlayoffsAdminPanel({
+  headers,
+}: {
+  headers: Record<string, string>;
+}) {
+  const [lockInput, setLockInput] = useState("");
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [currentLock, setCurrentLock] = useState<string | null>(null);
+
+  const refreshStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/playoff/status", { cache: "no-store" });
+      const data = await res.json();
+      setCurrentLock(data.settings?.picks_lock_at ?? null);
+    } catch {
+      setCurrentLock(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshStatus();
+  }, [refreshStatus]);
+
+  const run = async (label: string, fn: () => Promise<void>) => {
+    setBusy(label);
+    setStatusMsg(null);
+    try {
+      await fn();
+    } finally {
+      setBusy(null);
+      refreshStatus();
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Lock playoff picks at the first postseason puck drop, sync fantasy
+        points from the NHL API (skater playoff points + goalie playoff wins),
+        or set a manual lock time.
+      </p>
+
+      {currentLock && (
+        <div className="rounded-lg bg-secondary/50 px-4 py-3 text-sm">
+          <span className="text-muted-foreground">Current lock (UTC): </span>
+          <span className="font-mono text-foreground">{currentLock}</span>
+        </div>
+      )}
+
+      <button
+        type="button"
+        disabled={!!busy}
+        onClick={() =>
+          run("lock", async () => {
+            const res = await fetch("/api/playoff/sync-lock", {
+              method: "POST",
+              headers,
+            });
+            const data = await res.json();
+            setStatusMsg(
+              data.success
+                ? `Lock set to ${data.picks_lock_at}`
+                : data.message || data.error || "Done"
+            );
+          })
+        }
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3.5 text-base font-semibold text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-50"
+      >
+        {busy === "lock" ? (
+          <Loader2 className="h-5 w-5 animate-spin" />
+        ) : (
+          <Snowflake className="h-5 w-5" />
+        )}
+        Find first playoff game &amp; set lock
+      </button>
+
+      <button
+        type="button"
+        disabled={!!busy}
+        onClick={() =>
+          run("stats", async () => {
+            const res = await fetch("/api/playoff/sync-stats", {
+              method: "POST",
+              headers,
+            });
+            const data = await res.json();
+            setStatusMsg(
+              data.success
+                ? `Updated stats for ${data.players_updated} NHL players`
+                : data.error || "Failed"
+            );
+          })
+        }
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card py-3.5 text-base font-semibold transition-all hover:bg-secondary/50 disabled:opacity-50"
+      >
+        {busy === "stats" ? (
+          <Loader2 className="h-5 w-5 animate-spin" />
+        ) : (
+          <RefreshCw className="h-5 w-5" />
+        )}
+        Sync playoff stats from NHL
+      </button>
+
+      <div className="rounded-xl border border-border bg-card p-4">
+        <p className="mb-2 text-sm font-medium">Manual lock (local time)</p>
+        <input
+          type="datetime-local"
+          value={lockInput}
+          onChange={(e) => setLockInput(e.target.value)}
+          className="mb-3 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+        />
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={!!busy || !lockInput}
+            onClick={() =>
+              run("manual", async () => {
+                const d = new Date(lockInput);
+                const iso = d.toISOString();
+                const res = await fetch("/api/playoff/settings", {
+                  method: "PATCH",
+                  headers,
+                  body: JSON.stringify({ picks_lock_at: iso }),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                  setStatusMsg(data.error || "Failed");
+                  return;
+                }
+                setStatusMsg("Lock time saved");
+              })
+            }
+            className="flex-1 rounded-lg bg-primary py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            Save lock time
+          </button>
+          <button
+            type="button"
+            disabled={!!busy}
+            onClick={() =>
+              run("clear", async () => {
+                const res = await fetch("/api/playoff/settings", {
+                  method: "PATCH",
+                  headers,
+                  body: JSON.stringify({ picks_lock_at: null }),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                  setStatusMsg(data.error || "Failed");
+                  return;
+                }
+                setStatusMsg("Lock cleared");
+                setLockInput("");
+              })
+            }
+            className="rounded-lg border border-border px-4 py-2.5 text-sm font-medium hover:bg-secondary/50 disabled:opacity-50"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
+      {statusMsg && (
+        <div className="rounded-lg bg-secondary/50 px-4 py-3 text-sm text-foreground">
+          {statusMsg}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminDashboard({ authToken }: { authToken: string }) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [games, setGames] = useState<Game[]>([]);
@@ -85,9 +258,9 @@ function AdminDashboard({ authToken }: { authToken: string }) {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [playerError, setPlayerError] = useState("");
-  const [activeTab, setActiveTab] = useState<"players" | "sync" | "override">(
-    "players"
-  );
+  const [activeTab, setActiveTab] = useState<
+    "players" | "sync" | "override" | "playoffs"
+  >("players");
 
   const headers = {
     "Content-Type": "application/json",
@@ -191,17 +364,18 @@ function AdminDashboard({ authToken }: { authToken: string }) {
       </div>
 
       {/* Tab switcher */}
-      <div className="mb-6 flex gap-1 rounded-lg bg-secondary p-1">
+      <div className="mb-6 grid grid-cols-2 gap-1 rounded-lg bg-secondary p-1 sm:grid-cols-4">
         {[
           { key: "players" as const, label: "Players", icon: Users },
           { key: "sync" as const, label: "Sync", icon: Zap },
           { key: "override" as const, label: "Override", icon: Settings },
+          { key: "playoffs" as const, label: "Playoffs", icon: Snowflake },
         ].map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setActiveTab(key)}
             className={cn(
-              "flex flex-1 items-center justify-center gap-1.5 rounded-md py-2.5 text-sm font-medium transition-all",
+              "flex items-center justify-center gap-1.5 rounded-md py-2.5 text-xs font-medium transition-all sm:text-sm",
               activeTab === key
                 ? "bg-primary text-primary-foreground shadow"
                 : "text-muted-foreground hover:text-foreground"
@@ -308,6 +482,10 @@ function AdminDashboard({ authToken }: { authToken: string }) {
             </p>
           </div>
         </div>
+      )}
+
+      {activeTab === "playoffs" && (
+        <PlayoffsAdminPanel headers={headers} />
       )}
 
       {/* Override tab */}

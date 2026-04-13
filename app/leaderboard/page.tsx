@@ -1,7 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Game, LeaderboardEntry, Pick as PickType } from "@/lib/types";
+import {
+  Game,
+  LeaderboardEntry,
+  Pick as PickType,
+  PlayoffLeaderboardEntry,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Trophy, Loader2, Medal, ChevronDown, ChevronUp } from "lucide-react";
 import { formatDisplayDate, isWeekendLocked } from "@/lib/dates";
@@ -28,8 +33,13 @@ function formatWeekLabel(week: WeekOption): string {
 }
 
 export default function LeaderboardPage() {
-  const [mode, setMode] = useState<"weekend" | "alltime">("weekend");
+  const [mode, setMode] = useState<"weekend" | "alltime" | "playoff">(
+    "weekend"
+  );
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [playoffBoard, setPlayoffBoard] = useState<PlayoffLeaderboardEntry[]>(
+    []
+  );
   const [totalGames, setTotalGames] = useState(0);
   const [weeks, setWeeks] = useState<WeekOption[]>([]);
   const [selectedWeekId, setSelectedWeekId] = useState("");
@@ -52,6 +62,18 @@ export default function LeaderboardPage() {
   }, []);
 
   useEffect(() => {
+    if (mode === "playoff") {
+      setLoading(true);
+      fetch(`/api/playoff/leaderboard?t=${Date.now()}`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((data) => {
+          setPlayoffBoard(data.leaderboard || []);
+        })
+        .catch(() => setPlayoffBoard([]))
+        .finally(() => setLoading(false));
+      return;
+    }
+
     setLoading(true);
     const params = new URLSearchParams({
       mode,
@@ -142,28 +164,39 @@ export default function LeaderboardPage() {
       </div>
 
       {/* Tab switcher */}
-      <div className="mb-6 flex gap-1 rounded-lg bg-secondary p-1">
+      <div className="mb-6 grid grid-cols-3 gap-1 rounded-lg bg-secondary p-1">
         <button
           onClick={() => setMode("weekend")}
           className={cn(
-            "flex-1 rounded-md py-2.5 text-sm font-medium transition-all",
+            "rounded-md py-2.5 text-xs font-medium transition-all sm:text-sm",
             mode === "weekend"
               ? "bg-primary text-primary-foreground shadow"
               : "text-muted-foreground hover:text-foreground"
           )}
         >
-          This Weekend
+          Weekend
         </button>
         <button
           onClick={() => setMode("alltime")}
           className={cn(
-            "flex-1 rounded-md py-2.5 text-sm font-medium transition-all",
+            "rounded-md py-2.5 text-xs font-medium transition-all sm:text-sm",
             mode === "alltime"
               ? "bg-primary text-primary-foreground shadow"
               : "text-muted-foreground hover:text-foreground"
           )}
         >
           All-Time
+        </button>
+        <button
+          onClick={() => setMode("playoff")}
+          className={cn(
+            "rounded-md py-2.5 text-xs font-medium transition-all sm:text-sm",
+            mode === "playoff"
+              ? "bg-primary text-primary-foreground shadow"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          Playoffs
         </button>
       </div>
 
@@ -191,15 +224,33 @@ export default function LeaderboardPage() {
       )}
 
       {/* Empty state */}
-      {!loading && leaderboard.length === 0 && (
+      {!loading &&
+        mode !== "playoff" &&
+        leaderboard.length === 0 && (
+          <div className="py-12 text-center text-muted-foreground">
+            <p className="text-lg font-medium">No data yet</p>
+            <p className="text-sm">Standings will appear once picks are made</p>
+          </div>
+        )}
+
+      {!loading && mode === "playoff" && playoffBoard.length === 0 && (
         <div className="py-12 text-center text-muted-foreground">
-          <p className="text-lg font-medium">No data yet</p>
-          <p className="text-sm">Standings will appear once picks are made</p>
+          <p className="text-lg font-medium">No playoff rosters yet</p>
+          <p className="text-sm">
+            Entries will show after players submit playoff picks
+          </p>
+        </div>
+      )}
+
+      {!loading && mode === "playoff" && playoffBoard.length > 0 && (
+        <div className="mb-4 rounded-lg bg-secondary/50 p-3 text-xs text-muted-foreground">
+          Fantasy points: skaters earn NHL playoff points; goalies earn playoff
+          wins. Run &quot;Sync playoff stats&quot; in Admin after games.
         </div>
       )}
 
       {/* Leaderboard */}
-      {!loading && leaderboard.length > 0 && (
+      {!loading && mode !== "playoff" && leaderboard.length > 0 && (
         <div className="space-y-2">
           {leaderboard.map((entry, index) => {
             const isCurrentPlayer = entry.player_id === currentPlayer;
@@ -331,6 +382,59 @@ export default function LeaderboardPage() {
                     )}
                   </div>
                 )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {!loading && mode === "playoff" && playoffBoard.length > 0 && (
+        <div className="space-y-2">
+          {playoffBoard.map((entry, index) => {
+            const isCurrentPlayer = entry.player_id === currentPlayer;
+            const rank = index + 1;
+            return (
+              <div
+                key={entry.player_id}
+                className={cn(
+                  "flex items-center gap-3 rounded-xl border p-4",
+                  isCurrentPlayer
+                    ? "border-primary/50 bg-primary/5"
+                    : "border-border bg-card"
+                )}
+              >
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center">
+                  {rank === 1 ? (
+                    <Medal className="h-6 w-6 text-yellow-400" />
+                  ) : rank === 2 ? (
+                    <Medal className="h-6 w-6 text-gray-300" />
+                  ) : rank === 3 ? (
+                    <Medal className="h-6 w-6 text-amber-600" />
+                  ) : (
+                    <span className="text-lg font-bold text-muted-foreground">
+                      {rank}
+                    </span>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <span
+                    className={cn(
+                      "font-semibold",
+                      isCurrentPlayer && "text-primary"
+                    )}
+                  >
+                    {entry.player_name}
+                  </span>
+                  {isCurrentPlayer && (
+                    <span className="ml-2 text-xs text-primary">(You)</span>
+                  )}
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-bold tabular-nums">
+                    {entry.total_points}
+                  </div>
+                  <div className="text-xs text-muted-foreground">pts</div>
+                </div>
               </div>
             );
           })}
