@@ -7,8 +7,7 @@ import {
   PlayoffSettings,
   PlayoffTeamOption,
 } from "@/lib/types";
-import TeamLogo from "@/components/TeamLogo";
-import { ParsedRosterPlayer } from "@/lib/nhl-playoff";
+import { ParsedRosterPlayerWithTeam } from "@/lib/nhl-playoff";
 import { cn } from "@/lib/utils";
 import {
   CheckCircle2,
@@ -27,9 +26,13 @@ export default function PlayoffPoolSection() {
   const [picksLocked, setPicksLocked] = useState(false);
   const [statusLoading, setStatusLoading] = useState(true);
 
-  const [selectedTeam, setSelectedTeam] = useState<string>("");
-  const [roster, setRoster] = useState<ParsedRosterPlayer[]>([]);
-  const [rosterLoading, setRosterLoading] = useState(false);
+  const [allSkaters, setAllSkaters] = useState<ParsedRosterPlayerWithTeam[]>(
+    []
+  );
+  const [allGoalies, setAllGoalies] = useState<ParsedRosterPlayerWithTeam[]>(
+    []
+  );
+  const [combinedLoading, setCombinedLoading] = useState(false);
   const [skaterIds, setSkaterIds] = useState<number[]>([]);
   const [goalieId, setGoalieId] = useState<number | null>(null);
   const [existingPicks, setExistingPicks] = useState<PlayoffPick[]>([]);
@@ -83,8 +86,8 @@ export default function PlayoffPoolSection() {
       setExistingPicks([]);
       setSkaterIds([]);
       setGoalieId(null);
-      setSelectedTeam("");
-      setRoster([]);
+      setAllSkaters([]);
+      setAllGoalies([]);
       localStorage.removeItem("hockey-pool-player");
     }
   }, [players, selectedPlayer]);
@@ -103,9 +106,6 @@ export default function PlayoffPoolSection() {
       const rows = data.picks || [];
       setExistingPicks(rows);
       setPicksLocked(!!data.picks_locked);
-      if (rows.length > 0 && rows[0]?.team_abbrev) {
-        setSelectedTeam(rows[0].team_abbrev);
-      }
     } catch {
       setError("Failed to load playoff roster");
     }
@@ -115,36 +115,47 @@ export default function PlayoffPoolSection() {
     loadExisting();
   }, [loadExisting]);
 
+  const hasSubmittedRoster = existingPicks.length > 0;
+  const canEdit =
+    !!selectedPlayer &&
+    !picksLocked &&
+    !hasSubmittedRoster &&
+    teams.length > 0;
+
   useEffect(() => {
-    if (!selectedTeam) {
-      setRoster([]);
+    if (!canEdit) {
+      if (!hasSubmittedRoster) {
+        setAllSkaters([]);
+        setAllGoalies([]);
+      }
       return;
     }
     let cancelled = false;
-    setRosterLoading(true);
-    fetch(`/api/playoff/roster?team=${encodeURIComponent(selectedTeam)}`)
+    setCombinedLoading(true);
+    setError(null);
+    fetch("/api/playoff/all-rosters", { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
-        setRoster(data.roster || []);
+        setAllSkaters(data.skaters || []);
+        setAllGoalies(data.goalies || []);
+        if (data.error) setError(data.error);
       })
       .catch(() => {
-        if (!cancelled) setError("Failed to load roster");
+        if (!cancelled) setError("Failed to load playoff rosters");
       })
       .finally(() => {
-        if (!cancelled) setRosterLoading(false);
+        if (!cancelled) setCombinedLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [selectedTeam]);
+  }, [canEdit, hasSubmittedRoster]);
 
   const handlePlayerChange = (id: string) => {
     setSelectedPlayer(id);
     setSkaterIds([]);
     setGoalieId(null);
-    setSelectedTeam("");
-    setRoster([]);
     setExistingPicks([]);
     setSubmittedFlash(false);
     setError(null);
@@ -152,20 +163,15 @@ export default function PlayoffPoolSection() {
     else localStorage.removeItem("hockey-pool-player");
   };
 
-  const skatersOnRoster = useMemo(
-    () => roster.filter((p) => !p.is_goalie),
-    [roster]
-  );
-  const goaliesOnRoster = useMemo(
-    () => roster.filter((p) => p.is_goalie),
-    [roster]
-  );
-
   const filteredSkaters = useMemo(() => {
     const q = skaterFilter.trim().toLowerCase();
-    if (!q) return skatersOnRoster;
-    return skatersOnRoster.filter((p) => p.name.toLowerCase().includes(q));
-  }, [skatersOnRoster, skaterFilter]);
+    if (!q) return allSkaters;
+    return allSkaters.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.team_abbrev.toLowerCase().includes(q)
+    );
+  }, [allSkaters, skaterFilter]);
 
   const toggleSkater = (id: number) => {
     setSkaterIds((prev) => {
@@ -175,41 +181,49 @@ export default function PlayoffPoolSection() {
     });
   };
 
-  const hasSubmittedRoster = existingPicks.length > 0;
-  const canEdit =
-    !!selectedPlayer &&
-    !picksLocked &&
-    !hasSubmittedRoster &&
-    teams.length > 0;
-
   const readyToSubmit =
-    canEdit && skaterIds.length === 15 && goalieId !== null && selectedTeam;
+    canEdit &&
+    skaterIds.length === 15 &&
+    goalieId !== null &&
+    !combinedLoading &&
+    allSkaters.length > 0 &&
+    allGoalies.length > 0;
 
   const handleSubmit = async () => {
-    if (!selectedPlayer || !selectedTeam || !goalieId) return;
+    if (!selectedPlayer || goalieId === null) return;
     setSubmitting(true);
     setError(null);
+
     const rosterRows: Array<{
       nhl_player_id: number;
-      player_name: string;
+      team_abbrev: string;
       is_goalie: boolean;
     }> = [];
+
     for (const id of skaterIds) {
-      const p = skatersOnRoster.find((x) => x.nhl_player_id === id);
-      if (p)
+      const p = allSkaters.find((x) => x.nhl_player_id === id);
+      if (p) {
         rosterRows.push({
           nhl_player_id: id,
-          player_name: p.name,
+          team_abbrev: p.team_abbrev,
           is_goalie: false,
         });
+      }
     }
-    const g = goaliesOnRoster.find((x) => x.nhl_player_id === goalieId);
-    if (g)
+    const g = allGoalies.find((x) => x.nhl_player_id === goalieId);
+    if (g) {
       rosterRows.push({
         nhl_player_id: goalieId,
-        player_name: g.name,
+        team_abbrev: g.team_abbrev,
         is_goalie: true,
       });
+    }
+
+    if (rosterRows.length !== 16) {
+      setError("Could not resolve all players. Refresh and try again.");
+      setSubmitting(false);
+      return;
+    }
 
     try {
       const res = await fetch("/api/playoff/picks", {
@@ -217,7 +231,6 @@ export default function PlayoffPoolSection() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           player_id: selectedPlayer,
-          team_abbrev: selectedTeam,
           roster: rosterRows,
         }),
       });
@@ -229,7 +242,6 @@ export default function PlayoffPoolSection() {
       setSubmittedFlash(true);
       setSkaterIds([]);
       setGoalieId(null);
-      setRoster([]);
       await loadExisting();
       setTimeout(() => setSubmittedFlash(false), 2500);
     } catch {
@@ -239,17 +251,16 @@ export default function PlayoffPoolSection() {
     }
   };
 
-  const showTeamGrid = canEdit;
-  const showPickers = canEdit && !!selectedTeam;
+  const showPickers = canEdit;
 
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold">Playoff Pool</h1>
         <p className="text-sm text-muted-foreground">
-          Build a 16-player roster (15 skaters + 1 goalie) for the entire
-          postseason. Skaters score fantasy points from playoff points; goalies
-          from playoff wins.
+          Pick any 15 skaters and 1 goalie from playoff teams (16 players total,
+          any mix of teams). Skaters score from playoff points; goalies from
+          playoff wins.
         </p>
       </div>
 
@@ -332,21 +343,21 @@ export default function PlayoffPoolSection() {
         hasSubmittedRoster && (
           <div className="space-y-3 rounded-xl border border-border bg-card p-4">
             <p className="text-sm font-semibold text-muted-foreground">
-              Your roster · {existingPicks[0]?.team_abbrev}
+              Your roster
             </p>
             <ul className="divide-y divide-border text-sm">
               {existingPicks.map((p) => (
                 <li
                   key={p.id}
-                  className="flex items-center justify-between py-2 first:pt-0"
+                  className="flex items-center justify-between gap-2 py-2 first:pt-0"
                 >
                   <span>
-                    {p.player_name}
+                    <span className="font-medium">{p.player_name}</span>
                     <span className="ml-2 text-xs text-muted-foreground">
-                      {p.is_goalie ? "G" : "Skater"}
+                      {p.team_abbrev} · {p.is_goalie ? "G" : "Skater"}
                     </span>
                   </span>
-                  <span className="tabular-nums text-muted-foreground">
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
                     {p.stat_value} pts
                   </span>
                 </li>
@@ -355,46 +366,16 @@ export default function PlayoffPoolSection() {
           </div>
         )}
 
-      {!statusLoading && showTeamGrid && selectedPlayer && (
-        <div className="mb-4">
-          <h2 className="mb-2 text-sm font-medium text-muted-foreground">
-            Choose your team
-          </h2>
-          <div className="grid grid-cols-4 gap-2 sm:grid-cols-5">
-            {teams.map((t) => {
-              const active = selectedTeam === t.abbrev;
-              return (
-                <button
-                  key={t.abbrev}
-                  type="button"
-                  onClick={() => {
-                    setSelectedTeam(t.abbrev);
-                    setSkaterIds([]);
-                    setGoalieId(null);
-                  }}
-                  className={cn(
-                    "flex flex-col items-center gap-1 rounded-xl border p-2 text-xs transition-all active:scale-[0.98]",
-                    active
-                      ? "border-primary bg-primary/10"
-                      : "border-border bg-card hover:bg-secondary/40"
-                  )}
-                >
-                  <TeamLogo src={t.logo} alt={t.abbrev} size={40} />
-                  <span className="font-semibold leading-tight">{t.abbrev}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {rosterLoading && showPickers && (
-        <div className="flex justify-center py-8">
+      {combinedLoading && showPickers && (
+        <div className="flex flex-col items-center justify-center gap-2 py-12">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">
+            Loading all playoff team rosters…
+          </p>
         </div>
       )}
 
-      {!rosterLoading && showPickers && roster.length > 0 && (
+      {!combinedLoading && showPickers && allSkaters.length > 0 && (
         <div className="space-y-6">
           <div>
             <div className="mb-2 flex items-center justify-between gap-2">
@@ -408,7 +389,7 @@ export default function PlayoffPoolSection() {
                 type="search"
                 value={skaterFilter}
                 onChange={(e) => setSkaterFilter(e.target.value)}
-                placeholder="Search skaters..."
+                placeholder="Search by name or team…"
                 className="w-full rounded-lg border border-border bg-card py-2.5 pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
@@ -418,7 +399,7 @@ export default function PlayoffPoolSection() {
                 const disabled = !on && skaterIds.length >= 15;
                 return (
                   <label
-                    key={p.nhl_player_id}
+                    key={`${p.team_abbrev}-${p.nhl_player_id}`}
                     className={cn(
                       "flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2.5 transition-colors",
                       on ? "bg-primary/15" : "hover:bg-secondary/50",
@@ -427,15 +408,15 @@ export default function PlayoffPoolSection() {
                   >
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-border"
+                      className="h-4 w-4 shrink-0 rounded border-border"
                       checked={on}
                       disabled={disabled}
                       onChange={() => toggleSkater(p.nhl_player_id)}
                     />
-                    <span className="flex-1 text-sm">
-                      {p.name}
+                    <span className="min-w-0 flex-1 text-sm">
+                      <span className="font-medium">{p.name}</span>
                       <span className="ml-2 text-xs text-muted-foreground">
-                        {p.positionCode}
+                        {p.team_abbrev} · {p.positionCode}
                       </span>
                     </span>
                   </label>
@@ -446,7 +427,7 @@ export default function PlayoffPoolSection() {
 
           <div>
             <label className="mb-2 block text-sm font-medium text-muted-foreground">
-              Goalie (1)
+              Goalie (1) — any playoff team
             </label>
             <select
               value={goalieId ?? ""}
@@ -457,10 +438,10 @@ export default function PlayoffPoolSection() {
               }
               className="w-full rounded-lg border border-border bg-card px-4 py-3 text-base text-foreground outline-none focus:ring-2 focus:ring-primary"
             >
-              <option value="">Select a goalie...</option>
-              {goaliesOnRoster.map((g) => (
+              <option value="">Select a goalie…</option>
+              {allGoalies.map((g) => (
                 <option key={g.nhl_player_id} value={g.nhl_player_id}>
-                  {g.name}
+                  {g.name} ({g.team_abbrev})
                 </option>
               ))}
             </select>

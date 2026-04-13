@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { getServiceSupabase } from "@/lib/supabase";
-import { fetchTeamRoster } from "@/lib/nhl-playoff";
+import {
+  fetchPlayoffBracketTeams,
+  fetchTeamRoster,
+} from "@/lib/nhl-playoff";
 
 export const dynamic = "force-dynamic";
 
@@ -54,32 +57,25 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const {
-      player_id,
-      team_abbrev,
-      roster,
-    } = body as {
+    const { player_id, roster } = body as {
       player_id?: string;
-      team_abbrev?: string;
       roster?: Array<{
         nhl_player_id: number;
-        player_name: string;
+        team_abbrev: string;
         is_goalie: boolean;
       }>;
     };
 
-    if (!player_id || !team_abbrev || !Array.isArray(roster)) {
+    if (!player_id || !Array.isArray(roster)) {
       return NextResponse.json(
-        { error: "player_id, team_abbrev, and roster are required" },
+        { error: "player_id and roster are required" },
         { status: 400 }
       );
     }
 
-    const team = team_abbrev.trim().toUpperCase();
-
     const { data: settings } = await supabase
       .from("playoff_settings")
-      .select("picks_lock_at")
+      .select("picks_lock_at, bracket_calendar_year")
       .limit(1)
       .maybeSingle();
 
@@ -114,22 +110,56 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let validRoster: Awaited<ReturnType<typeof fetchTeamRoster>>;
+    const calendarYear = settings?.bracket_calendar_year ?? 2026;
+    let bracketTeams: Awaited<ReturnType<typeof fetchPlayoffBracketTeams>>;
     try {
-      validRoster = await fetchTeamRoster(team);
+      bracketTeams = await fetchPlayoffBracketTeams(calendarYear);
     } catch {
       return NextResponse.json(
-        { error: "Could not validate roster for that team." },
+        { error: "Could not load playoff bracket." },
         { status: 400 }
       );
     }
 
-    const byId = new Map(
-      validRoster.map((p) => [
-        p.nhl_player_id,
-        { is_goalie: p.is_goalie, name: p.name },
-      ])
-    );
+    const bracketAbbrevs = new Set(bracketTeams.map((t) => t.abbrev));
+
+    const teamsNeeded = new Set<string>();
+    for (const row of roster) {
+      const abbr = (row.team_abbrev || "").trim().toUpperCase();
+      if (!abbr || !bracketAbbrevs.has(abbr)) {
+        return NextResponse.json(
+          { error: `Invalid or non-playoff team: ${row.team_abbrev}` },
+          { status: 400 }
+        );
+      }
+      teamsNeeded.add(abbr);
+    }
+
+    const rosterByTeam = new Map<
+      string,
+      Map<number, { is_goalie: boolean; name: string }>
+    >();
+
+    for (const abbr of Array.from(teamsNeeded)) {
+      let validRoster: Awaited<ReturnType<typeof fetchTeamRoster>>;
+      try {
+        validRoster = await fetchTeamRoster(abbr);
+      } catch {
+        return NextResponse.json(
+          { error: `Could not validate roster for ${abbr}.` },
+          { status: 400 }
+        );
+      }
+      rosterByTeam.set(
+        abbr,
+        new Map(
+          validRoster.map((p) => [
+            p.nhl_player_id,
+            { is_goalie: p.is_goalie, name: p.name },
+          ])
+        )
+      );
+    }
 
     const seen = new Set<number>();
     for (const row of roster) {
@@ -140,10 +170,15 @@ export async function POST(request: NextRequest) {
         );
       }
       seen.add(row.nhl_player_id);
-      const meta = byId.get(row.nhl_player_id);
+
+      const abbr = row.team_abbrev.trim().toUpperCase();
+      const byId = rosterByTeam.get(abbr);
+      const meta = byId?.get(row.nhl_player_id);
       if (!meta) {
         return NextResponse.json(
-          { error: "Invalid player for this team." },
+          {
+            error: `Player ${row.nhl_player_id} is not on ${abbr}'s roster.`,
+          },
           { status: 400 }
         );
       }
@@ -156,14 +191,18 @@ export async function POST(request: NextRequest) {
     }
 
     const service = getServiceSupabase();
-    const insertData = roster.map((r) => ({
-      player_id,
-      team_abbrev: team,
-      nhl_player_id: r.nhl_player_id,
-      player_name: byId.get(r.nhl_player_id)!.name,
-      is_goalie: r.is_goalie,
-      stat_value: 0,
-    }));
+    const insertData = roster.map((r) => {
+      const abbr = r.team_abbrev.trim().toUpperCase();
+      const meta = rosterByTeam.get(abbr)!.get(r.nhl_player_id)!;
+      return {
+        player_id,
+        team_abbrev: abbr,
+        nhl_player_id: r.nhl_player_id,
+        player_name: meta.name,
+        is_goalie: r.is_goalie,
+        stat_value: 0,
+      };
+    });
 
     const { error } = await service.from("playoff_picks").insert(insertData);
 

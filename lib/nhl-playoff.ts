@@ -126,6 +126,53 @@ export async function fetchTeamRoster(teamAbbrev: string): Promise<ParsedRosterP
   return out;
 }
 
+export interface ParsedRosterPlayerWithTeam extends ParsedRosterPlayer {
+  team_abbrev: string;
+}
+
+/**
+ * All skaters and goalies from every team in the current playoff bracket.
+ * NHL player IDs are de-duplicated (one row per player).
+ */
+export async function fetchAllPlayoffTeamRosters(calendarYear: number): Promise<{
+  skaters: ParsedRosterPlayerWithTeam[];
+  goalies: ParsedRosterPlayerWithTeam[];
+}> {
+  const teams = await fetchPlayoffBracketTeams(calendarYear);
+  const chunks = await Promise.all(
+    teams.map(async (t) => {
+      try {
+        const r = await fetchTeamRoster(t.abbrev);
+        return r.map(
+          (p): ParsedRosterPlayerWithTeam => ({
+            ...p,
+            team_abbrev: t.abbrev,
+          })
+        );
+      } catch {
+        return [];
+      }
+    })
+  );
+  const flat = chunks.flat();
+  const seen = new Set<number>();
+  const deduped: ParsedRosterPlayerWithTeam[] = [];
+  for (const p of flat) {
+    if (seen.has(p.nhl_player_id)) continue;
+    seen.add(p.nhl_player_id);
+    deduped.push(p);
+  }
+  deduped.sort((a, b) => {
+    const byTeam = a.team_abbrev.localeCompare(b.team_abbrev);
+    if (byTeam !== 0) return byTeam;
+    return a.name.localeCompare(b.name);
+  });
+  return {
+    skaters: deduped.filter((p) => !p.is_goalie),
+    goalies: deduped.filter((p) => p.is_goalie),
+  };
+}
+
 export async function fetchPlayerLanding(
   nhlPlayerId: number
 ): Promise<PlayerLandingResponse> {

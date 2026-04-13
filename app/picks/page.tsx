@@ -112,7 +112,7 @@ export default function PicksViewPage() {
   const playoffByPlayer = useMemo(() => {
     const m = new Map<
       string,
-      { name: string; rows: PlayoffPickRow[]; team: string }
+      { name: string; rows: PlayoffPickRow[]; teamLabel: string }
     >();
     for (const row of playoffPicks) {
       const id = row.player_id;
@@ -121,11 +121,19 @@ export default function PicksViewPage() {
         players.find((p) => p.id === id)?.name ||
         "Unknown";
       if (!m.has(id)) {
-        m.set(id, { name, rows: [], team: row.team_abbrev });
+        m.set(id, { name, rows: [], teamLabel: "" });
       }
       const g = m.get(id)!;
       g.rows.push(row);
-      g.team = row.team_abbrev;
+    }
+    for (const g of Array.from(m.values())) {
+      const abbrevs = Array.from(
+        new Set(g.rows.map((r) => r.team_abbrev).filter(Boolean))
+      ).sort();
+      g.teamLabel =
+        abbrevs.length <= 2
+          ? abbrevs.join(" · ")
+          : `${abbrevs.length} teams`;
     }
     for (const g of Array.from(m.values())) {
       g.rows.sort((a, b) => {
@@ -348,7 +356,7 @@ export default function PicksViewPage() {
                     <div className="flex-1">
                       <div className="font-semibold">{group.name}</div>
                       <div className="mt-1 text-xs text-muted-foreground">
-                        {group.team} · {group.rows.length} players ·{" "}
+                        {group.teamLabel} · {group.rows.length} players ·{" "}
                         {totalPts} pts
                       </div>
                     </div>
