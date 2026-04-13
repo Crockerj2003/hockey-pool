@@ -128,11 +128,68 @@ export async function fetchTeamRoster(teamAbbrev: string): Promise<ParsedRosterP
 
 export interface ParsedRosterPlayerWithTeam extends ParsedRosterPlayer {
   team_abbrev: string;
+  /** Regular-season points from club stats (skaters). */
+  season_points?: number;
+  /** Regular-season wins from club stats (goalies). */
+  season_wins?: number;
+}
+
+interface ClubStatsNowResponse {
+  skaters?: Array<{ playerId: number; points?: number }>;
+  goalies?: Array<{ playerId: number; wins?: number }>;
+}
+
+/**
+ * Team season totals (regular season) for sorting and display.
+ */
+export async function fetchClubStatsNow(teamAbbrev: string): Promise<{
+  pointsByPlayer: Map<number, number>;
+  winsByPlayer: Map<number, number>;
+}> {
+  const res = await fetch(
+    `${NHL_API_BASE}/club-stats/${encodeURIComponent(teamAbbrev)}/now`,
+    { next: { revalidate: 300 } }
+  );
+  if (!res.ok) {
+    return { pointsByPlayer: new Map(), winsByPlayer: new Map() };
+  }
+  const data = (await res.json()) as ClubStatsNowResponse;
+  const pointsByPlayer = new Map<number, number>();
+  for (const s of data.skaters || []) {
+    pointsByPlayer.set(s.playerId, s.points ?? 0);
+  }
+  const winsByPlayer = new Map<number, number>();
+  for (const g of data.goalies || []) {
+    winsByPlayer.set(g.playerId, g.wins ?? 0);
+  }
+  return { pointsByPlayer, winsByPlayer };
+}
+
+async function attachSeasonStatsToRoster(
+  players: ParsedRosterPlayerWithTeam[]
+): Promise<void> {
+  const teamAbbrevs = Array.from(new Set(players.map((p) => p.team_abbrev)));
+  const statsList = await Promise.all(
+    teamAbbrevs.map((abbr) => fetchClubStatsNow(abbr))
+  );
+  const byTeam = new Map(
+    teamAbbrevs.map((abbr, i) => [abbr, statsList[i]])
+  );
+  for (const p of players) {
+    const stat = byTeam.get(p.team_abbrev);
+    if (!stat) continue;
+    if (p.is_goalie) {
+      p.season_wins = stat.winsByPlayer.get(p.nhl_player_id) ?? 0;
+    } else {
+      p.season_points = stat.pointsByPlayer.get(p.nhl_player_id) ?? 0;
+    }
+  }
 }
 
 /**
  * All skaters and goalies from every team in the current playoff bracket.
  * NHL player IDs are de-duplicated (one row per player).
+ * Season points / wins are filled from `/club-stats/{team}/now` for sorting.
  */
 export async function fetchAllPlayoffTeamRosters(calendarYear: number): Promise<{
   skaters: ParsedRosterPlayerWithTeam[];
@@ -162,11 +219,7 @@ export async function fetchAllPlayoffTeamRosters(calendarYear: number): Promise<
     seen.add(p.nhl_player_id);
     deduped.push(p);
   }
-  deduped.sort((a, b) => {
-    const byTeam = a.team_abbrev.localeCompare(b.team_abbrev);
-    if (byTeam !== 0) return byTeam;
-    return a.name.localeCompare(b.name);
-  });
+  await attachSeasonStatsToRoster(deduped);
   return {
     skaters: deduped.filter((p) => !p.is_goalie),
     goalies: deduped.filter((p) => p.is_goalie),

@@ -37,6 +37,8 @@ export default function PlayoffPoolSection() {
   const [goalieId, setGoalieId] = useState<number | null>(null);
   const [existingPicks, setExistingPicks] = useState<PlayoffPick[]>([]);
   const [skaterFilter, setSkaterFilter] = useState("");
+  /** Empty string = all playoff teams */
+  const [filterTeam, setFilterTeam] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
   const [submittedFlash, setSubmittedFlash] = useState(false);
@@ -156,6 +158,7 @@ export default function PlayoffPoolSection() {
     setSelectedPlayer(id);
     setSkaterIds([]);
     setGoalieId(null);
+    setFilterTeam("");
     setExistingPicks([]);
     setSubmittedFlash(false);
     setError(null);
@@ -164,14 +167,46 @@ export default function PlayoffPoolSection() {
   };
 
   const filteredSkaters = useMemo(() => {
+    let list = allSkaters;
+    if (filterTeam) {
+      list = list.filter((p) => p.team_abbrev === filterTeam);
+    }
     const q = skaterFilter.trim().toLowerCase();
-    if (!q) return allSkaters;
-    return allSkaters.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.team_abbrev.toLowerCase().includes(q)
-    );
-  }, [allSkaters, skaterFilter]);
+    if (q) {
+      list = list.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.team_abbrev.toLowerCase().includes(q)
+      );
+    }
+    return [...list].sort((a, b) => {
+      const pa = a.season_points ?? 0;
+      const pb = b.season_points ?? 0;
+      if (pb !== pa) return pb - pa;
+      return a.name.localeCompare(b.name);
+    });
+  }, [allSkaters, skaterFilter, filterTeam]);
+
+  const displayedGoalies = useMemo(() => {
+    let list = filterTeam
+      ? allGoalies.filter((g) => g.team_abbrev === filterTeam)
+      : allGoalies;
+    return [...list].sort((a, b) => {
+      const wa = a.season_wins ?? 0;
+      const wb = b.season_wins ?? 0;
+      if (wb !== wa) return wb - wa;
+      return a.name.localeCompare(b.name);
+    });
+  }, [allGoalies, filterTeam]);
+
+  useEffect(() => {
+    if (!goalieId) return;
+    const g = allGoalies.find((x) => x.nhl_player_id === goalieId);
+    if (!g) return;
+    if (filterTeam && g.team_abbrev !== filterTeam) {
+      setGoalieId(null);
+    }
+  }, [filterTeam, goalieId, allGoalies]);
 
   const toggleSkater = (id: number) => {
     setSkaterIds((prev) => {
@@ -259,8 +294,9 @@ export default function PlayoffPoolSection() {
         <h1 className="text-2xl font-bold">Playoff Pool</h1>
         <p className="text-sm text-muted-foreground">
           Pick any 15 skaters and 1 goalie from playoff teams (16 players total,
-          any mix of teams). Skaters score from playoff points; goalies from
-          playoff wins.
+          any mix of teams). Lists sort by regular-season points (skaters) and
+          wins (goalies), highest first. Skaters score from playoff points;
+          goalies from playoff wins.
         </p>
       </div>
 
@@ -377,31 +413,60 @@ export default function PlayoffPoolSection() {
 
       {!combinedLoading && showPickers && allSkaters.length > 0 && (
         <div className="space-y-6">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Team filter
+              </label>
+              <select
+                value={filterTeam}
+                onChange={(e) => setFilterTeam(e.target.value)}
+                className="w-full rounded-lg border border-border bg-card px-4 py-3 text-base text-foreground outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="">All teams</option>
+                {teams.map((t) => (
+                  <option key={t.abbrev} value={t.abbrev}>
+                    {t.abbrev} — {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
+                Search
+              </label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="search"
+                  value={skaterFilter}
+                  onChange={(e) => setSkaterFilter(e.target.value)}
+                  placeholder="Name or team…"
+                  className="w-full rounded-lg border border-border bg-card py-2.5 pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            </div>
+          </div>
+
           <div>
             <div className="mb-2 flex items-center justify-between gap-2">
               <h2 className="text-sm font-medium text-muted-foreground">
                 Skaters ({skaterIds.length}/15)
               </h2>
-            </div>
-            <div className="relative mb-2">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="search"
-                value={skaterFilter}
-                onChange={(e) => setSkaterFilter(e.target.value)}
-                placeholder="Search by name or team…"
-                className="w-full rounded-lg border border-border bg-card py-2.5 pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary"
-              />
+              <span className="text-xs text-muted-foreground">
+                Sorted by NHL points (high → low)
+              </span>
             </div>
             <div className="max-h-[55vh] overflow-y-auto rounded-xl border border-border bg-card p-2 hide-scrollbar">
               {filteredSkaters.map((p) => {
                 const on = skaterIds.includes(p.nhl_player_id);
                 const disabled = !on && skaterIds.length >= 15;
+                const pts = p.season_points ?? 0;
                 return (
                   <label
                     key={`${p.team_abbrev}-${p.nhl_player_id}`}
                     className={cn(
-                      "flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2.5 transition-colors",
+                      "flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2.5 transition-colors sm:gap-3",
                       on ? "bg-primary/15" : "hover:bg-secondary/50",
                       disabled && "cursor-not-allowed opacity-40"
                     )}
@@ -419,6 +484,9 @@ export default function PlayoffPoolSection() {
                         {p.team_abbrev} · {p.positionCode}
                       </span>
                     </span>
+                    <span className="shrink-0 tabular-nums text-xs text-muted-foreground sm:text-sm">
+                      {pts} pts
+                    </span>
                   </label>
                 );
               })}
@@ -426,9 +494,14 @@ export default function PlayoffPoolSection() {
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-medium text-muted-foreground">
-              Goalie (1) — any playoff team
-            </label>
+            <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <label className="text-sm font-medium text-muted-foreground">
+                Goalie (1) — any playoff team
+              </label>
+              <span className="text-xs text-muted-foreground">
+                Sorted by NHL wins (high → low)
+              </span>
+            </div>
             <select
               value={goalieId ?? ""}
               onChange={(e) =>
@@ -439,9 +512,9 @@ export default function PlayoffPoolSection() {
               className="w-full rounded-lg border border-border bg-card px-4 py-3 text-base text-foreground outline-none focus:ring-2 focus:ring-primary"
             >
               <option value="">Select a goalie…</option>
-              {allGoalies.map((g) => (
+              {displayedGoalies.map((g) => (
                 <option key={g.nhl_player_id} value={g.nhl_player_id}>
-                  {g.name} ({g.team_abbrev})
+                  {g.name} ({g.team_abbrev}) — {g.season_wins ?? 0} W
                 </option>
               ))}
             </select>
