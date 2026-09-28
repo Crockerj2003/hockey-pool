@@ -82,13 +82,18 @@ create table if not exists playoff_settings (
   id uuid primary key default uuid_generate_v4(),
   bracket_calendar_year int not null default 2026,
   season_id text not null default '20252026',
-  picks_lock_at timestamptz
+  picks_lock_at timestamptz,
+  ui_enabled boolean not null default false
 );
 
 -- Exactly one settings row (insert manually in Supabase if empty)
 insert into playoff_settings (bracket_calendar_year, season_id)
 select 2026, '20252026'
 where not exists (select 1 from playoff_settings limit 1);
+
+-- Existing projects: add column if the table was created earlier
+alter table playoff_settings
+  add column if not exists ui_enabled boolean not null default false;
 
 create table if not exists playoff_picks (
   id uuid primary key default uuid_generate_v4(),

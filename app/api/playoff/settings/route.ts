@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceSupabase } from "@/lib/supabase";
+import { supabase, getServiceSupabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,22 @@ function isAuthorized(request: NextRequest): boolean {
   return token === adminPassword;
 }
 
-/** PATCH body: { picks_lock_at: string | null } ISO datetime or null to clear */
+/** Public: read playoff settings (includes ui_enabled). */
+export async function GET() {
+  const { data, error } = await supabase
+    .from("playoff_settings")
+    .select("*")
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ settings: data });
+}
+
+/** PATCH body: { picks_lock_at?: string | null, ui_enabled?: boolean } */
 export async function PATCH(request: NextRequest) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -18,10 +33,8 @@ export async function PATCH(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const raw = body.picks_lock_at as string | null | undefined;
-
-    const supabase = getServiceSupabase();
-    const { data: settings } = await supabase
+    const supabaseAdmin = getServiceSupabase();
+    const { data: settings } = await supabaseAdmin
       .from("playoff_settings")
       .select("id")
       .limit(1)
@@ -31,16 +44,26 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "No playoff settings" }, { status: 500 });
     }
 
-    let nextLock: string | null;
-    if (raw === null || raw === undefined || raw === "") {
-      nextLock = null;
-    } else {
-      nextLock = raw;
+    const update: Record<string, unknown> = {};
+
+    if ("picks_lock_at" in body) {
+      const raw = body.picks_lock_at as string | null | undefined;
+      update.picks_lock_at =
+        raw === null || raw === undefined || raw === "" ? null : raw;
     }
 
-    const update = { picks_lock_at: nextLock };
+    if (typeof body.ui_enabled === "boolean") {
+      update.ui_enabled = body.ui_enabled;
+    }
 
-    const { data, error } = await supabase
+    if (Object.keys(update).length === 0) {
+      return NextResponse.json(
+        { error: "No valid fields to update" },
+        { status: 400 }
+      );
+    }
+
+    const { data, error } = await supabaseAdmin
       .from("playoff_settings")
       .update(update)
       .eq("id", settings.id)

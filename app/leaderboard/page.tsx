@@ -10,6 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Trophy, Loader2, Medal, ChevronDown, ChevronUp } from "lucide-react";
 import { formatDisplayDate, isWeekendLocked } from "@/lib/dates";
+import { usePlayoffsUiEnabled } from "@/lib/features";
 import GameCard from "@/components/GameCard";
 
 interface WeekOption {
@@ -33,6 +34,7 @@ function formatWeekLabel(week: WeekOption): string {
 }
 
 export default function LeaderboardPage() {
+  const { enabled: playoffsEnabled } = usePlayoffsUiEnabled();
   const [mode, setMode] = useState<"weekend" | "alltime" | "playoff">(
     "weekend"
   );
@@ -63,6 +65,10 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     if (mode === "playoff") {
+      if (!playoffsEnabled) {
+        setMode("weekend");
+        return;
+      }
       setLoading(true);
       fetch(`/api/playoff/leaderboard?t=${Date.now()}`, { cache: "no-store" })
         .then((r) => r.json())
@@ -104,7 +110,7 @@ export default function LeaderboardPage() {
         setWeeks([]);
       })
       .finally(() => setLoading(false));
-  }, [mode, selectedWeekId]);
+  }, [mode, selectedWeekId, playoffsEnabled]);
 
   useEffect(() => {
     setExpandedPlayerId(null);
@@ -164,11 +170,17 @@ export default function LeaderboardPage() {
       </div>
 
       {/* Tab switcher */}
-      <div className="mb-6 grid grid-cols-3 gap-1 rounded-lg bg-secondary p-1">
+      <div
+        className={cn(
+          "mb-6 gap-1 rounded-lg bg-secondary p-1",
+          playoffsEnabled ? "grid grid-cols-3" : "flex"
+        )}
+      >
         <button
           onClick={() => setMode("weekend")}
           className={cn(
             "rounded-md py-2.5 text-xs font-medium transition-all sm:text-sm",
+            !playoffsEnabled && "flex-1",
             mode === "weekend"
               ? "bg-primary text-primary-foreground shadow"
               : "text-muted-foreground hover:text-foreground"
@@ -180,6 +192,7 @@ export default function LeaderboardPage() {
           onClick={() => setMode("alltime")}
           className={cn(
             "rounded-md py-2.5 text-xs font-medium transition-all sm:text-sm",
+            !playoffsEnabled && "flex-1",
             mode === "alltime"
               ? "bg-primary text-primary-foreground shadow"
               : "text-muted-foreground hover:text-foreground"
@@ -187,17 +200,19 @@ export default function LeaderboardPage() {
         >
           All-Time
         </button>
-        <button
-          onClick={() => setMode("playoff")}
-          className={cn(
-            "rounded-md py-2.5 text-xs font-medium transition-all sm:text-sm",
-            mode === "playoff"
-              ? "bg-primary text-primary-foreground shadow"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          Playoffs
-        </button>
+        {playoffsEnabled && (
+          <button
+            onClick={() => setMode("playoff")}
+            className={cn(
+              "rounded-md py-2.5 text-xs font-medium transition-all sm:text-sm",
+              mode === "playoff"
+                ? "bg-primary text-primary-foreground shadow"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Playoffs
+          </button>
+        )}
       </div>
 
       {mode === "weekend" && weeks.length > 0 && (

@@ -87,14 +87,17 @@ function PlayoffsAdminPanel({
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [currentLock, setCurrentLock] = useState<string | null>(null);
+  const [uiEnabled, setUiEnabled] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     try {
       const res = await fetch("/api/playoff/status", { cache: "no-store" });
       const data = await res.json();
       setCurrentLock(data.settings?.picks_lock_at ?? null);
+      setUiEnabled(!!data.settings?.ui_enabled);
     } catch {
       setCurrentLock(null);
+      setUiEnabled(false);
     }
   }, []);
 
@@ -115,6 +118,57 @@ function PlayoffsAdminPanel({
 
   return (
     <div className="space-y-4">
+      <div className="rounded-xl border border-border bg-card p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-foreground">
+              Show playoff UI
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Toggles Playoffs tabs on Picks, All Picks, and Standings
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={uiEnabled}
+            disabled={!!busy}
+            onClick={() =>
+              run("ui", async () => {
+                const next = !uiEnabled;
+                const res = await fetch("/api/playoff/settings", {
+                  method: "PATCH",
+                  headers,
+                  body: JSON.stringify({ ui_enabled: next }),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                  setStatusMsg(data.error || "Failed to update");
+                  return;
+                }
+                setUiEnabled(!!data.settings?.ui_enabled);
+                setStatusMsg(
+                  next
+                    ? "Playoff UI is now visible"
+                    : "Playoff UI is now hidden"
+                );
+              })
+            }
+            className={cn(
+              "relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-50",
+              uiEnabled ? "bg-primary" : "bg-secondary"
+            )}
+          >
+            <span
+              className={cn(
+                "absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white transition-transform",
+                uiEnabled && "translate-x-5"
+              )}
+            />
+          </button>
+        </div>
+      </div>
+
       <p className="text-sm text-muted-foreground">
         Lock playoff picks at the first postseason puck drop, sync fantasy
         points from the NHL API (skater playoff points + goalie playoff wins),

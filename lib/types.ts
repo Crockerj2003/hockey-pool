@@ -53,6 +53,7 @@ export interface PlayoffSettings {
   bracket_calendar_year: number;
   season_id: string;
   picks_lock_at: string | null;
+  ui_enabled: boolean;
 }
 
 export interface PlayoffPick {

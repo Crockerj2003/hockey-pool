@@ -2,56 +2,67 @@
 
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { usePlayoffsUiEnabled } from "@/lib/features";
 import RegularSeasonPicks from "@/components/RegularSeasonPicks";
 import PlayoffPoolSection from "@/components/PlayoffPoolSection";
 
 const MODE_KEY = "hockey-pool-mode";
 
 export default function HomePage() {
+  const { enabled: playoffsEnabled } = usePlayoffsUiEnabled();
   const [mode, setMode] = useState<"regular" | "playoff">("regular");
 
   useEffect(() => {
+    if (!playoffsEnabled) {
+      setMode("regular");
+      localStorage.setItem(MODE_KEY, "regular");
+      return;
+    }
     const saved = localStorage.getItem(MODE_KEY);
     if (saved === "playoff" || saved === "regular") {
       setMode(saved);
     }
-  }, []);
+  }, [playoffsEnabled]);
 
   const setModeAndPersist = (next: "regular" | "playoff") => {
     setMode(next);
     localStorage.setItem(MODE_KEY, next);
   };
 
+  const showPlayoffs = playoffsEnabled && mode === "playoff";
+
   return (
     <div className="px-4">
-      <div className="mb-6 flex gap-1 rounded-lg bg-secondary p-1">
-        <button
-          type="button"
-          onClick={() => setModeAndPersist("regular")}
-          className={cn(
-            "flex-1 rounded-md py-2.5 text-sm font-medium transition-all",
-            mode === "regular"
-              ? "bg-primary text-primary-foreground shadow"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          Regular season
-        </button>
-        <button
-          type="button"
-          onClick={() => setModeAndPersist("playoff")}
-          className={cn(
-            "flex-1 rounded-md py-2.5 text-sm font-medium transition-all",
-            mode === "playoff"
-              ? "bg-primary text-primary-foreground shadow"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          Playoffs
-        </button>
-      </div>
+      {playoffsEnabled && (
+        <div className="mb-6 flex gap-1 rounded-lg bg-secondary p-1">
+          <button
+            type="button"
+            onClick={() => setModeAndPersist("regular")}
+            className={cn(
+              "flex-1 rounded-md py-2.5 text-sm font-medium transition-all",
+              mode === "regular"
+                ? "bg-primary text-primary-foreground shadow"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Regular season
+          </button>
+          <button
+            type="button"
+            onClick={() => setModeAndPersist("playoff")}
+            className={cn(
+              "flex-1 rounded-md py-2.5 text-sm font-medium transition-all",
+              mode === "playoff"
+                ? "bg-primary text-primary-foreground shadow"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Playoffs
+          </button>
+        </div>
+      )}
 
-      {mode === "regular" ? <RegularSeasonPicks /> : <PlayoffPoolSection />}
+      {showPlayoffs ? <PlayoffPoolSection /> : <RegularSeasonPicks />}
     </div>
   );
 }

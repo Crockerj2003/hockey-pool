@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Game, Player, Pick as PickType, PlayoffPick } from "@/lib/types";
 import { formatDisplayDate, isWeekendLocked } from "@/lib/dates";
+import { usePlayoffsUiEnabled } from "@/lib/features";
 import { cn } from "@/lib/utils";
 import GameCard from "@/components/GameCard";
 import {
@@ -26,6 +27,7 @@ interface PlayerPickData {
 type PlayoffPickRow = PlayoffPick & { player_name_display?: string };
 
 export default function PicksViewPage() {
+  const { enabled: playoffsEnabled } = usePlayoffsUiEnabled();
   const [view, setView] = useState<"weekend" | "playoff">("weekend");
 
   const [players, setPlayers] = useState<Player[]>([]);
@@ -63,6 +65,10 @@ export default function PicksViewPage() {
   }, []);
 
   useEffect(() => {
+    if (!playoffsEnabled) {
+      setPlayoffLoading(false);
+      return;
+    }
     async function loadPlayoff() {
       setPlayoffLoading(true);
       try {
@@ -77,7 +83,7 @@ export default function PicksViewPage() {
       }
     }
     loadPlayoff();
-  }, []);
+  }, [playoffsEnabled]);
 
   const playerData: PlayerPickData[] = players.map((player) => {
     const playerPicks = allPicks.filter((p) => p.player_id === player.id);
@@ -150,7 +156,9 @@ export default function PicksViewPage() {
       });
   }, [playoffPicks, players]);
 
-  if (view === "weekend" && loading) {
+  const activeView = playoffsEnabled ? view : "weekend";
+
+  if (activeView === "weekend" && loading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -158,7 +166,7 @@ export default function PicksViewPage() {
     );
   }
 
-  if (view === "playoff" && playoffLoading) {
+  if (activeView === "playoff" && playoffLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -168,34 +176,36 @@ export default function PicksViewPage() {
 
   return (
     <div className="px-4">
-      <div className="mb-6 flex gap-1 rounded-lg bg-secondary p-1">
-        <button
-          type="button"
-          onClick={() => setView("weekend")}
-          className={cn(
-            "flex-1 rounded-md py-2.5 text-sm font-medium transition-all",
-            view === "weekend"
-              ? "bg-primary text-primary-foreground shadow"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          Weekend games
-        </button>
-        <button
-          type="button"
-          onClick={() => setView("playoff")}
-          className={cn(
-            "flex-1 rounded-md py-2.5 text-sm font-medium transition-all",
-            view === "playoff"
-              ? "bg-primary text-primary-foreground shadow"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          Playoff rosters
-        </button>
-      </div>
+      {playoffsEnabled && (
+        <div className="mb-6 flex gap-1 rounded-lg bg-secondary p-1">
+          <button
+            type="button"
+            onClick={() => setView("weekend")}
+            className={cn(
+              "flex-1 rounded-md py-2.5 text-sm font-medium transition-all",
+              activeView === "weekend"
+                ? "bg-primary text-primary-foreground shadow"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Weekend games
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("playoff")}
+            className={cn(
+              "flex-1 rounded-md py-2.5 text-sm font-medium transition-all",
+              activeView === "playoff"
+                ? "bg-primary text-primary-foreground shadow"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Playoff rosters
+          </button>
+        </div>
+      )}
 
-      {view === "weekend" && (
+      {activeView === "weekend" && (
         <>
           <div className="mb-6">
             <h1 className="flex items-center gap-2 text-2xl font-bold">
@@ -306,7 +316,7 @@ export default function PicksViewPage() {
         </>
       )}
 
-      {view === "playoff" && (
+      {activeView === "playoff" && (
         <>
           <div className="mb-6">
             <h1 className="flex items-center gap-2 text-2xl font-bold">
