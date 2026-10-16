@@ -131,6 +131,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const pickedGameIds = new Set(picks.map((p) => p.game_id));
+    const missingPick = gameIds.some((id) => !pickedGameIds.has(id));
+    if (missingPick || pickedGameIds.size !== gameIds.length) {
+      return NextResponse.json(
+        { error: "You must pick a winner for every game." },
+        { status: 400 }
+      );
+    }
+
     // Hard lock after first submission: no edits/updates.
     const { count: existingCount } = await supabase
       .from("picks")

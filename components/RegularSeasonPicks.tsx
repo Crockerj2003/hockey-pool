@@ -103,6 +103,10 @@ export default function RegularSeasonPicks() {
 
   const handleSubmit = async () => {
     if (!selectedPlayer) return;
+    if (Object.keys(picks).length !== games.length) {
+      setError("Pick a winner for every game before submitting.");
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
@@ -243,13 +247,13 @@ export default function RegularSeasonPicks() {
             </div>
             <button
               onClick={handleSubmit}
-              disabled={submitting || pickedCount === 0}
+              disabled={submitting || pickedCount !== totalGames}
               className={cn(
                 "flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-base font-semibold transition-all",
                 submitted
                   ? "bg-green-500 text-white"
                   : "bg-primary text-primary-foreground hover:bg-primary/90 active:scale-[0.98]",
-                (submitting || pickedCount === 0) && "opacity-50"
+                (submitting || pickedCount !== totalGames) && "opacity-50"
               )}
             >
               {submitting ? (
