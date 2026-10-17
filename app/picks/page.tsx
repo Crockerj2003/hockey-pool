@@ -6,6 +6,7 @@ import { formatDisplayDate, isWeekendLocked } from "@/lib/dates";
 import { usePlayoffsUiEnabled } from "@/lib/features";
 import { cn } from "@/lib/utils";
 import GameCard from "@/components/GameCard";
+import ComparePicks from "@/components/ComparePicks";
 import {
   Loader2,
   ChevronDown,
@@ -28,7 +29,7 @@ type PlayoffPickRow = PlayoffPick & { player_name_display?: string };
 
 export default function PicksViewPage() {
   const { enabled: playoffsEnabled } = usePlayoffsUiEnabled();
-  const [view, setView] = useState<"weekend" | "playoff">("weekend");
+  const [view, setView] = useState<"weekend" | "compare" | "playoff">("weekend");
 
   const [players, setPlayers] = useState<Player[]>([]);
   const [games, setGames] = useState<Game[]>([]);
@@ -156,9 +157,10 @@ export default function PicksViewPage() {
       });
   }, [playoffPicks, players]);
 
-  const activeView = playoffsEnabled ? view : "weekend";
+  const activeView =
+    !playoffsEnabled && view === "playoff" ? "weekend" : view;
 
-  if (activeView === "weekend" && loading) {
+  if ((activeView === "weekend" || activeView === "compare") && loading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -176,34 +178,51 @@ export default function PicksViewPage() {
 
   return (
     <div className="px-4">
-      {playoffsEnabled && (
-        <div className="mb-6 flex gap-1 rounded-lg bg-secondary p-1">
-          <button
-            type="button"
-            onClick={() => setView("weekend")}
-            className={cn(
-              "flex-1 rounded-md py-2.5 text-sm font-medium transition-all",
-              activeView === "weekend"
-                ? "bg-primary text-primary-foreground shadow"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            Weekend games
-          </button>
+      <div
+        className={cn(
+          "mb-6 grid gap-1 rounded-lg bg-secondary p-1",
+          playoffsEnabled ? "grid-cols-3" : "grid-cols-2"
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => setView("weekend")}
+          className={cn(
+            "rounded-md py-2.5 text-xs font-medium transition-all sm:text-sm",
+            activeView === "weekend"
+              ? "bg-primary text-primary-foreground shadow"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          Weekend
+        </button>
+        <button
+          type="button"
+          onClick={() => setView("compare")}
+          className={cn(
+            "rounded-md py-2.5 text-xs font-medium transition-all sm:text-sm",
+            activeView === "compare"
+              ? "bg-primary text-primary-foreground shadow"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          Compare
+        </button>
+        {playoffsEnabled && (
           <button
             type="button"
             onClick={() => setView("playoff")}
             className={cn(
-              "flex-1 rounded-md py-2.5 text-sm font-medium transition-all",
+              "rounded-md py-2.5 text-xs font-medium transition-all sm:text-sm",
               activeView === "playoff"
                 ? "bg-primary text-primary-foreground shadow"
                 : "text-muted-foreground hover:text-foreground"
             )}
           >
-            Playoff rosters
+            Playoffs
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {activeView === "weekend" && (
         <>
@@ -314,6 +333,15 @@ export default function PicksViewPage() {
             })}
           </div>
         </>
+      )}
+
+      {activeView === "compare" && (
+        <ComparePicks
+          players={players}
+          games={games}
+          picks={allPicks}
+          revealed={picksRevealed}
+        />
       )}
 
       {activeView === "playoff" && (
